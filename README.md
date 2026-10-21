@@ -12,6 +12,8 @@ Every object is a tetrahedral mesh built from voxels. Each tet is shape-matched 
 
 Cracks run along tet faces. When a face is overstressed, the GPU splits the mesh there by duplicating vertices with a union-find pass, so the crack opens in the same substep. Broken faces spawn dust, splinters and glass slivers, and single loose tets retire into particles once they come to rest.
 
+**[Undermine: Fort War](fortwar/)** ([play](https://sh1ftmaker.github.io/tetrafract/fortwar/)) applies the same simulation to a whole destructible game level from [WorldParty](https://github.com/zalo/WorldParty) (MIT). Intact terrain stays static, and only damaged areas are simulated.
+
 An earlier experiment with rigid pieces joined by breakable XPBD welds is kept in [`archive/v2-rigid-pieces/`](archive/v2-rigid-pieces/) ([live](https://sh1ftmaker.github.io/tetrafract/archive/v2-rigid-pieces/)).
 
 ## Controls
