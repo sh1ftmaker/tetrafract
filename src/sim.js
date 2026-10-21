@@ -35,6 +35,8 @@ import {
 import { MATERIALS, TET_FACES } from './builder.js';
 
 export const MAX_BALLS = 8;
+// Ball record: 4 x vec4 per slot: (pos, radius) (prev, 1/mass) (style, -, -, kinematic) (rotation quaternion)
+export const BALL = 4;
 // Ring buffer of cosmetic debris particles (dust, chips, glints, sparks); no physics cost.
 export const MAX_PARTICLES = 8192;
 // Particle kinds (= material ids): 0 wood chip, 1 glass glint, 2 steel spark, 3 stone dust, 5 rock dust
@@ -149,12 +151,14 @@ export class Simulation {
     const counters = new Int32Array(4 + MAX_BALLS * 4);
     counters[1] = m.N;
     this.counters = instancedArray(counters, 'int').toAtomic();
-    // Projectiles live on the GPU too: 3 x vec4 per slot (pos, radius) (prev, 1/mass) (0, 0, 0, kinematic)
-    this.balls = instancedArray(MAX_BALLS * 3, 'vec4');
+    // Projectiles and boulders live on the GPU too, as rigid spheres (layout: BALL)
+    this.balls = instancedArray(MAX_BALLS * BALL, 'vec4');
     this.ballSlots = new Array(MAX_BALLS).fill(null);
 
-    let maxR = 0;
-    for (let t = 0; t < T; t++) maxR = Math.max(maxR, m.tetRadius[t]);
+    // Hash cell = 2 x the 99th-percentile tet radius. Sizing it by the single largest
+    // (jittered) tet made every neighbour list much longer for the sake of a few outliers.
+    const radii = Float32Array.from(m.tetRadius).sort();
+    const cellR = radii[Math.floor(0.99 * (T - 1))];
     this.u = {
       dt: uniform(this.dt),
       frameDt: uniform(1 / 60),
@@ -170,7 +174,7 @@ export class Simulation {
       pushOrigin: uniform(new THREE.Vector3()),
       pushDir: uniform(new THREE.Vector3()),
       pushStrength: uniform(0),
-      cellSize: uniform(maxR * 2),
+      cellSize: uniform(cellR * 2),
     };
   }
 
@@ -442,11 +446,11 @@ export class Simulation {
 
       // projectiles: split the overlap by inverse mass, hand the ball its share of momentum
       Loop({ start: 0, end: MAX_BALLS, type: 'int', name: 'bi' }, ({ bi }) => {
-        const bp = balls.element(bi.mul(3)).toVar();
+        const bp = balls.element(bi.mul(BALL)).toVar();
         const d = np.sub(bp.xyz).toVar();
         const dist = length(d).toVar();
         If(dist.lessThan(bp.w).and(dist.greaterThan(1e-6)), () => {
-          const wb = balls.element(bi.mul(3).add(1)).w;
+          const wb = balls.element(bi.mul(BALL).add(1)).w;
           const wv = float(1).div(mass);
           const dx = d.div(dist).mul(bp.w.sub(dist)).mul(wv.div(wv.add(wb))).toVar();
           np.addAssign(dx);
@@ -733,14 +737,14 @@ export class Simulation {
     // Ball integration (one thread per slot), mirrors predictPass.
     this.ballPredict = Fn(() => {
       const i = int(instanceIndex);
-      const rec = balls.element(i.mul(3)).toVar();
+      const rec = balls.element(i.mul(BALL)).toVar();
       If(rec.w.lessThanEqual(0), () => { Return(); });
-      If(balls.element(i.mul(3).add(2)).w.greaterThan(0.5), () => {
-        balls.element(i.mul(3)).xyz.assign(u.kinPos);
-        balls.element(i.mul(3).add(1)).xyz.assign(u.kinPos.sub(u.kinVel.mul(u.dt)));
+      If(balls.element(i.mul(BALL).add(2)).w.greaterThan(0.5), () => {
+        balls.element(i.mul(BALL)).xyz.assign(u.kinPos);
+        balls.element(i.mul(BALL).add(1)).xyz.assign(u.kinPos.sub(u.kinVel.mul(u.dt)));
         Return();
       });
-      const pv = balls.element(i.mul(3).add(1)).xyz.toVar();
+      const pv = balls.element(i.mul(BALL).add(1)).xyz.toVar();
       const vel = rec.xyz.sub(pv).mul(0.9999).add(u.gravity.mul(u.dt.mul(u.dt))).toVar();
       const np = rec.xyz.add(vel).toVar();
       const nprev = rec.xyz.toVar();
@@ -750,8 +754,12 @@ export class Simulation {
         nprev.x.assign(mix(nprev.x, np.x, 0.01));
         nprev.z.assign(mix(nprev.z, np.z, 0.01));
       });
-      balls.element(i.mul(3)).xyz.assign(np);
-      balls.element(i.mul(3).add(1)).xyz.assign(nprev);
+      balls.element(i.mul(BALL)).xyz.assign(np);
+      balls.element(i.mul(BALL).add(1)).xyz.assign(nprev);
+      // spin as if rolling (render only; contact is a frictionless sphere)
+      const w = cross(vec3(0, 1, 0), np.sub(nprev)).div(rec.w).toVar();
+      const q = balls.element(i.mul(BALL).add(3)).toVar();
+      balls.element(i.mul(BALL).add(3)).assign(q.add(qmul(vec4(w.mul(0.5), 0), q)).normalize());
     })().compute(MAX_BALLS);
 
     // Apply the momentum vertices pushed onto each ball during the last projection.
@@ -765,8 +773,8 @@ export class Simulation {
       atomicStore(ballAcc.element(i.mul(4)), int(0));
       atomicStore(ballAcc.element(i.mul(4).add(1)), int(0));
       atomicStore(ballAcc.element(i.mul(4).add(2)), int(0));
-      const w = balls.element(i.mul(3).add(1)).w;
-      balls.element(i.mul(3)).xyz.subAssign(acc.mul(w).mul(1e-6));
+      const w = balls.element(i.mul(BALL).add(1)).w;
+      balls.element(i.mul(BALL)).xyz.subAssign(acc.mul(w).mul(1e-6));
     })().compute(MAX_BALLS);
 
     // Force push: shove everything near a ray (velocity change via prev position).
@@ -825,16 +833,20 @@ export class Simulation {
   }
 
   // ---- projectiles ----
-  /** Spawns a ball in a GPU slot. kinematic balls follow `update(dt)` (wrecking ball). */
+  /**
+   * Spawns a ball in a GPU slot. kinematic balls follow `update(dt)` (wrecking ball).
+   * style: 0 iron cannonball, 1 rock boulder. keep: never recycled for new shots.
+   */
   addBall(opts) {
-    const { pos, vel, radius, mass, kinematic = false, life = Infinity } = opts;
+    const { pos, vel, radius, mass, kinematic = false, life = Infinity, style = 0, keep = false } = opts;
     let slot = this.ballSlots.findIndex((b) => !b);
-    if (slot < 0) { // recycle the oldest dynamic ball
-      slot = this.ballSlots.reduce((best, b, i) => (!b.kinematic && (best < 0 || b.born < this.ballSlots[best].born) ? i : best), -1);
+    if (slot < 0) { // recycle the oldest ordinary ball
+      slot = this.ballSlots.reduce((best, b, i) => (!b.kinematic && !b.keep && (best < 0 || b.born < this.ballSlots[best].born) ? i : best), -1);
     }
-    const ball = { ...opts, slot, kinematic, life, born: performance.now() };
+    if (slot < 0) return null;
+    const ball = { ...opts, slot, kinematic, life, style, keep, born: performance.now() };
     this.ballSlots[slot] = ball;
-    this._writeBall(slot, pos, vel, radius, kinematic ? 0 : 1 / mass, kinematic);
+    this._writeBall(slot, pos, vel, radius, kinematic ? 0 : 1 / mass, kinematic, style);
     return ball;
   }
 
@@ -844,10 +856,11 @@ export class Simulation {
     this._writeBall(ball.slot, ball.pos, ball.vel, 0, 0, false);
   }
 
-  _writeBall(slot, pos, vel, radius, invMass, kinematic) {
-    const dt = this.dt, a = this.balls.value.array, o = slot * 12;
-    a.set([pos.x, pos.y, pos.z, radius, pos.x - vel.x * dt, pos.y - vel.y * dt, pos.z - vel.z * dt, invMass, 0, 0, 0, kinematic ? 1 : 0], o);
-    this.balls.value.addUpdateRange(o, 12);
+  _writeBall(slot, pos, vel, radius, invMass, kinematic, style = 0) {
+    const dt = this.dt, a = this.balls.value.array, o = slot * BALL * 4;
+    a.set([pos.x, pos.y, pos.z, radius, pos.x - vel.x * dt, pos.y - vel.y * dt, pos.z - vel.z * dt, invMass,
+      style, 0, 0, kinematic ? 1 : 0, 0, 0, 0, 1], o);
+    this.balls.value.addUpdateRange(o, BALL * 4);
     this.balls.value.needsUpdate = true;
   }
 

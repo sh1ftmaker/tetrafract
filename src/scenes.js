@@ -70,6 +70,7 @@ export const SCENES = {
   hut: {
     label: 'Hut & boulder',
     camera: [-4.5, 3.2, 6.5], target: [1.0, 1.1, 0],
+    boulders: [{ center: [7.5, 1.6, 0.1], radius: 0.75, velocity: [-11, 2.5, 0] }],
     build(w) {
       const nx = 30, ny = 25, nz = 24, h = 0.1;
       w.addVoxels({
@@ -89,7 +90,6 @@ export const SCENES = {
           return null;
         },
       });
-      boulder(w, { center: [7.5, 1.6, 0.1], radius: 0.75, cell: 0.13, velocity: [-11, 2.5, 0], spin: [0, 0, 6] });
     },
   },
 
@@ -121,6 +121,8 @@ export const SCENES = {
     label: 'Materials lab',
     camera: [7.5, 4.5, 6.5], target: [0, 1.0, 0],
     wreckingBall: { pivot: [0, 6.6, 0], length: 5.0, angle: -1.1, radius: 0.6 },
+    // a load dropped onto the middle of each beam
+    boulders: [{ center: [-0.05, 3.6, -3.6], radius: 0.4, velocity: [0, -4, 0] }, { center: [-0.05, 3.6, 3.2], radius: 0.4, velocity: [0, -4, 0] }],
     build(w) {
       // concrete wall anchored to its foundation, in the wrecking ball's path
       w.addVoxels({ material: MAT.STONE, min: [-0.15, 0, -1.5], dims: [3, 24, 30], cell: 0.1, pin: (x, y) => y < 0.01 });
@@ -128,8 +130,6 @@ export const SCENES = {
       for (const [z, mat] of [[-3.6, MAT.WOOD], [3.2, MAT.STEEL]]) {
         for (const x of [-2.2, 1.6]) w.addVoxels({ material: MAT.STONE, min: [x, 0, z - 0.3], dims: [6, 9, 6], cell: 0.1 });
         w.addVoxels({ material: mat, min: [-2.4, 0.9, z - 0.15], dims: [mat === MAT.STEEL ? 44 : 22, mat === MAT.STEEL ? 2 : 3, 3], cell: mat === MAT.STEEL ? 0.1 : [0.2, 0.1, 0.1], grain: X });
-        // a load dropped onto the middle of each beam
-        boulder(w, { center: [-0.05, 3.6, z], radius: 0.4, velocity: [0, -4, 0] });
       }
       // jelly cube
       w.addVoxels({ material: MAT.JELLY, min: [3.0, 0.0, -0.6], dims: [7, 7, 7], cell: 0.12 });

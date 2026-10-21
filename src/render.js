@@ -192,7 +192,8 @@ function createParticles(sim) {
     vInfo.assign(vec4(kind, seed, a.w, life));
     return a.xyz;
   })();
-  const kind = vInfo.x, seed = vInfo.y, age = vInfo.z, life = vInfo.w;
+  // round: interpolated varyings can arrive as 2.9999998 on some GPUs, and kind is compared exactly
+  const kind = vInfo.x.add(0.5).floor(), seed = vInfo.y, age = vInfo.z, life = vInfo.w;
   const dust = kind.equal(3).or(kind.equal(5));
   const alive = age.lessThan(life);
   material.scaleNode = Fn(() => {

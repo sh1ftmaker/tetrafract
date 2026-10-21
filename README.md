@@ -6,18 +6,13 @@ Real-time destructible materials in the browser: wood that bends and splinters a
 
 It needs a WebGPU browser: desktop Chrome or Edge 113+, or Safari 18+.
 
-## Two approaches
+## How it works
 
-- **v1 · Tetrahedra** (`index.html`, `src/`).
-  - **Model:** every object is a tetrahedral mesh built from voxels. Each tet is shape-matched to its rest shape, and overlapping 4×4×4-cell clusters (lattice shape matching) add bending stiffness. A Chebyshev-accelerated Jacobi solver runs everything, entirely in three.js TSL compute.
-  - **Fracture:** cracks run along tet faces. When a face is overstressed, the GPU splits the mesh there by duplicating vertices with a union-find pass, so the crack opens in the same substep.
-  - **Debris:** broken faces spawn dust, splinters and glass slivers. Single loose tets retire into particles once they come to rest.
-- **v2 · Rigid pieces** (`v2/`). Objects are pre-split into rigid pieces held together by breakable 6-DOF welds:
-  - wood is split into fibres along the grain;
-  - glass is split into shards, re-cut around the impact point;
-  - stone is split into chunks.
+Every object is a tetrahedral mesh built from voxels. Each tet is shape-matched to its rest shape, and overlapping 4×4×4-cell clusters (lattice shape matching) add bending stiffness. A Chebyshev-accelerated Jacobi solver runs everything, entirely in three.js TSL compute.
 
-  The pieces are solved with XPBD in raw WGSL, with probe-sphere and convex-hull contacts.
+Cracks run along tet faces. When a face is overstressed, the GPU splits the mesh there by duplicating vertices with a union-find pass, so the crack opens in the same substep. Broken faces spawn dust, splinters and glass slivers, and single loose tets retire into particles once they come to rest.
+
+An earlier experiment with rigid pieces joined by breakable XPBD welds is kept in [`archive/v2-rigid-pieces/`](archive/v2-rigid-pieces/) ([live](https://sh1ftmaker.github.io/tetrafract/archive/v2-rigid-pieces/)).
 
 ## Controls
 
@@ -37,5 +32,5 @@ python3 -m http.server 8173
 - Per-tet rotation extraction and Jacobi vertex averaging follow [Tetrament](https://github.com/zalo/Tetrament) by Johnathon Selstad (MIT). Rotation extraction itself is from Müller et al., "A Robust Method to Extract the Rotational Part of Deformations" (2016).
 - Lattice shape matching: Rivers & James, "FastLSM: Fast Lattice Shape Matching for Robust Real-Time Deformation" (2007).
 - Chebyshev acceleration: Wang, "A Chebyshev Semi-Iterative Approach for Accelerating Projective and Position-based Dynamics" (2015).
-- XPBD rigid bodies (v2): Müller et al., "Detailed Rigid Body Simulation with Extended Position Based Dynamics" (2020).
+- XPBD rigid bodies (archived v2): Müller et al., "Detailed Rigid Body Simulation with Extended Position Based Dynamics" (2020).
 - Built with [three.js](https://threejs.org/).

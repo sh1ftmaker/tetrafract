@@ -33,9 +33,6 @@
   .hint { color: var(--dim); font-size: 11px; margin-top: 8px; }
   #error[hidden] { display: none; }
   #error { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 16px; background: #1a1c22; }
-  .versions { display: flex; gap: 4px; margin-top: 8px; }
-  .versions a { flex: 1; text-align: center; font-size: 12px; text-decoration: none; color: var(--ink, #e8eaf0); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 4px 0; }
-  .versions a.on { background: var(--accent, #f0a640); color: #1b1408; border-color: var(--accent, #f0a640); pointer-events: none; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -49,7 +46,6 @@
 <body>
 <div id="panel">
   <h1><span>Tetrafract <small>· WebGPU fracture</small></span><button id="collapse" title="Collapse">☰</button></h1>
-  <div class="versions"><a href="./" class="on" title="Tetrahedral FEM with GPU fracture">v1 · Tetrahedra</a><a href="./v2/" class="" title="Rigid splinters joined by breakable welds">v2 · Rigid pieces</a></div>
   <div class="body">
     <div class="label">Scene</div>
     <div class="row" id="scenes"></div>

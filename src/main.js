@@ -1,8 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { Fn, vec3, vec4, float, positionWorld, positionLocal, instanceIndex, fract, abs, min, smoothstep, mix, length } from 'three/tsl';
+import { Fn, vec3, vec4, float, positionWorld, positionLocal, normalLocal, instanceIndex, fract, abs, min, smoothstep, mix, length, cross, select, varying, mx_noise_float, mx_fractal_noise_float } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { Simulation, MAX_BALLS } from './sim.js';
+import { Simulation, MAX_BALLS, BALL } from './sim.js';
 import { createMeshes, showTets } from './render.js';
 import { SCENES, TEST_SCENES, buildScene, makeWreckingBall } from './scenes.js';
 
@@ -72,15 +72,41 @@ scene.add(sun, sun.target);
   scene.add(ground);
 }
 
-const ballGeo = new THREE.SphereGeometry(1, 32, 16);
+const ballGeo = new THREE.SphereGeometry(1, 48, 24);
 let ballMesh = null;
-/** Projectiles are drawn straight from the GPU ball buffer. */
+/**
+ * Projectiles and boulders are drawn straight from the GPU ball buffer: iron cannonballs,
+ * or (style 1) lumpy rolling rocks. Rocks only look lumpy; they collide as spheres.
+ */
 function makeBallMesh(sim) {
-  const mat = new THREE.MeshStandardNodeMaterial({ color: 0x2a2c30, metalness: 0.8, roughness: 0.35 });
+  const mat = new THREE.MeshStandardNodeMaterial();
+  const vLocal = varying(vec3(0), 'vBallLocal');
+  const vStyle = varying(float(0), 'vBallStyle');
+  const rot = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2.0));
   mat.positionNode = Fn(() => {
-    const rec = sim.balls.element(instanceIndex.mul(3));
-    return positionLocal.mul(rec.w).add(rec.xyz);
+    const base = instanceIndex.mul(BALL);
+    const rec = sim.balls.element(base);
+    const style = sim.balls.element(base.add(2)).x;
+    const q = sim.balls.element(base.add(3));
+    const rock = style.greaterThan(0.5);
+    const seed = float(instanceIndex).mul(7.31);
+    const lump = mx_fractal_noise_float(positionLocal.mul(1.6).add(seed), 3, 2.0, 0.5).mul(0.16)
+      .add(mx_noise_float(positionLocal.mul(5).add(seed)).mul(0.03));
+    const shape = positionLocal.mul(select(rock, lump.add(0.96), float(1)));
+    vLocal.assign(positionLocal);
+    vStyle.assign(style);
+    normalLocal.assign(rot(q, normalLocal));
+    return rot(q, shape).mul(rec.w).add(rec.xyz);
   })();
+  const rock = vStyle.greaterThan(0.5);
+  mat.colorNode = Fn(() => {
+    const n = mx_fractal_noise_float(vLocal.mul(3), 4, 2.0, 0.5).mul(0.5).add(0.5);
+    const speck = smoothstep(0.6, 0.72, mx_noise_float(vLocal.mul(25)).mul(0.5).add(0.5)).mul(0.1);
+    const stone = vec3(0.45, 0.42, 0.38).mul(n.mul(0.45).add(0.7)).sub(speck);
+    return vec4(select(rock, stone, vec3(0.16, 0.17, 0.19)), 1);
+  })();
+  mat.metalnessNode = select(rock, float(0), float(0.8));
+  mat.roughnessNode = select(rock, float(0.95), float(0.35));
   const mesh = new THREE.InstancedMesh(ballGeo, mat, MAX_BALLS);
   mesh.frustumCulled = false;
   mesh.castShadow = true;
@@ -129,6 +155,11 @@ function loadScene(key) {
   ballMesh = makeBallMesh(sim);
   scene.add(ballMesh);
   wrecker = def.wreckingBall ? sim.addBall(makeWreckingBall(def.wreckingBall)) : null;
+  // boulders are rigid GPU spheres: cheap, and they never needed to break
+  for (const b of def.boulders ?? []) {
+    sim.addBall({ pos: new THREE.Vector3(...b.center), vel: new THREE.Vector3(...(b.velocity ?? [0, 0, 0])), radius: b.radius,
+      mass: (4 / 3) * Math.PI * b.radius ** 3 * 2600, style: 1, keep: true });
+  }
   chain.visible = !!wrecker;
   camera.position.set(...def.camera);
   controls.target.set(...def.target);
@@ -164,7 +195,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     const hit = camera.position.clone().addScaledVector(dir, t);
     sim.addBall({
       pos: new THREE.Vector3(hit.x, 5 + state.size, hit.z), vel: new THREE.Vector3(),
-      radius: state.size, mass: state.mass, life: 20000,
+      radius: state.size, mass: state.mass, life: 20000, style: 1,
     });
   } else {
     sim.push(camera.position, dir, 14);
