@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Tetrafract</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --panel: rgba(18, 20, 26, 0.78); --ink: #e8eaf0; --dim: #9aa2b1; --accent: #f0a640; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #a9b8c6; font: 13px/1.35 system-ui, -apple-system, Segoe UI, sans-serif; color: var(--ink); }
+  canvas { display: block; touch-action: none; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 270px; max-width: calc(100vw - 24px); background: var(--panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 12px 12px 10px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+  h1 { font-size: 14px; margin: 0; letter-spacing: .02em; display: flex; justify-content: space-between; align-items: center; }
+  h1 small { color: var(--dim); font-weight: 400; }
+  #collapse { background: none; border: 0; color: var(--dim); font-size: 16px; padding: 0 2px; cursor: pointer; }
+  .body { margin-top: 8px; }
+  body.collapsed .body { display: none; }
+  .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 5px; }
+  .row { display: flex; flex-wrap: wrap; gap: 5px; }
+  button { font: inherit; color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+  button:hover { background: rgba(255,255,255,.15); }
+  button.on { background: var(--accent); color: #1b1408; border-color: var(--accent); }
+  .slider { display: grid; grid-template-columns: 74px 1fr 76px; align-items: center; gap: 6px; margin: 3px 0; }
+  .slider span:last-child { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select { font: inherit; color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 6px; padding: 3px 4px; }
+  select option { color: #111; }
+  #stats { margin-top: 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
+  #stats div { background: rgba(255,255,255,.06); border-radius: 6px; padding: 4px 0; }
+  #stats b { display: block; font-variant-numeric: tabular-nums; }
+  #stats small { color: var(--dim); font-size: 10px; }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 8px; }
+  #error[hidden] { display: none; }
+  #error { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 16px; background: #1a1c22; }
+  .versions { display: flex; gap: 4px; margin-top: 8px; }
+  .versions a { flex: 1; text-align: center; font-size: 12px; text-decoration: none; color: var(--ink, #e8eaf0); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 4px 0; }
+  .versions a.on { background: var(--accent, #f0a640); color: #1b1408; border-color: var(--accent, #f0a640); pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
+  "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
+  "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.tsl.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="panel">
+  <h1><span>Tetrafract <small>· WebGPU fracture</small></span><button id="collapse" title="Collapse">☰</button></h1>
+  <div class="versions"><a href="./" class="on" title="Tetrahedral FEM with GPU fracture">v1 · Tetrahedra</a><a href="./v2/" class="" title="Rigid splinters joined by breakable welds">v2 · Rigid pieces</a></div>
+  <div class="body">
+    <div class="label">Scene</div>
+    <div class="row" id="scenes"></div>
+    <div class="label">Tap / click to</div>
+    <div class="row">
+      <button data-tool="cannon" class="on">Fire cannonball</button>
+      <button data-tool="boulder">Drop boulder</button>
+      <button data-tool="push">Force push</button>
+    </div>
+    <div class="label">Tuning</div>
+    <div class="slider"><span>Toughness</span><input id="tough" type="range" min="-2" max="2" step="0.05" value="0"><span id="toughv">1.00×</span></div>
+    <div class="slider"><span>Ball speed</span><input id="speed" type="range" min="4" max="60" step="1" value="20"><span id="speedv">20 m/s</span></div>
+    <div class="slider"><span>Ball size</span><input id="size" type="range" min="0.08" max="0.7" step="0.01" value="0.2"><span id="sizev">40 cm</span></div>
+    <div class="slider"><span>Ball mass</span><input id="mass" type="range" min="0" max="3.3" step="0.05" value="1.4"><span id="massv">25 kg</span></div>
+    <div class="slider"><span>Quality</span><select id="quality"><option value="auto">Auto</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option></select><span id="qualityv"></span></div>
+    <div class="row" style="margin-top:8px">
+      <button id="reset">Reset (R)</button>
+      <button id="pause">Pause</button>
+      <button id="slowmo">Slow-mo</button>
+      <button id="showtets">Show tets</button>
+    </div>
+    <div id="stats">
+      <div><b id="tets">0</b><small>tets</small></div>
+      <div><b id="verts">0</b><small>verts</small></div>
+      <div><b id="cracks">0</b><small>cracks</small></div>
+      <div><b id="fps">0</b><small>fps</small></div>
+    </div>
+    <div class="hint">Drag to orbit · pinch / wheel to zoom. Cracks run along tetrahedron faces; the solver, collisions and fracture tests all run in WebGPU compute shaders.</div>
+  </div>
+</div>
+<div id="error" hidden></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
