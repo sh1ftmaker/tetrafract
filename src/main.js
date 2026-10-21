@@ -219,6 +219,7 @@ $('reset').onclick = () => loadScene(state.sceneKey);
 
 $('pause').onclick = () => { state.paused = !state.paused; $('pause').classList.toggle('on', state.paused); };
 $('slowmo').onclick = () => { state.slowmo = !state.slowmo; $('slowmo').classList.toggle('on', state.slowmo); };
+$('clearballs').onclick = () => { for (const b of sim.ballSlots) if (b && !b.kinematic) sim.removeBall(b); };
 $('showtets').onclick = () => { showTets.value = showTets.value ? 0 : 1; $('showtets').classList.toggle('on', !!showTets.value); };
 $('tough').oninput = () => { $('toughv').textContent = toughness().toFixed(2) + '×'; if (sim) sim.u.toughness.value = toughness(); };
 $('speed').oninput = () => { state.speed = +$('speed').value; $('speedv').textContent = state.speed + ' m/s'; };
